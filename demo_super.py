@@ -44,12 +44,17 @@ class D(A, B):
 
 
 def What_super_do(cls, inst):
+    """
+    super will get the next class of the input cls from the MRO of the input inst.
+    """
     mro = inst.__class__.mro()
     return mro[mro.index(cls) + 1]
 
 
 if __name__ == '__main__':
-    c = C()
+    a = A() # The super(A, self).__init__() in class A will call class T's __init__ method.
+    print '------'
+    c = C() # The super(A, self).__init__() in class A will call class B's __init__ method.
     print '------'
     d = D() # Watch out to mix use super and cls.__init__! (class T and B are inited twice here!)
     print '------'
