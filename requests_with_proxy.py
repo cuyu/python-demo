@@ -15,7 +15,7 @@ def request_without_proxy():
     print "(+) IP is: " + r.text.replace("\n", "")
 
 
-def request_with_proxy():
+def request_with_proxy(socks_port):
     """
     In order to use the proxy through socks5, must install the following python packages:
     requests (version 2.10.0)
@@ -25,8 +25,8 @@ def request_with_proxy():
     # We use `tor` as the sock proxy, so just set the port to 9050.
     # Must start `tor` to enable the proxy.
     proxies = {
-        'http': 'socks5://127.0.0.1:9050',
-        'https': 'socks5://127.0.0.1:9050'
+        'http': 'socks5://127.0.0.1:{0}'.format(socks_port),
+        'https': 'socks5://127.0.0.1:{0}'.format(socks_port)
     }
     r = requests.get(_URL, proxies=proxies)
     print "(+) IP is: " + r.text.replace("\n", "")
@@ -34,4 +34,9 @@ def request_with_proxy():
 
 if __name__ == '__main__':
     request_without_proxy()
-    request_with_proxy()
+    request_with_proxy('9050')
+    request_with_proxy('9060')
+    import os
+    os.system("""(echo authenticate '"changed"'; echo signal newnym; echo quit) | nc localhost 9051""")
+    request_with_proxy('9050')
+    request_with_proxy('9060')

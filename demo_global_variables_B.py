@@ -1,4 +1,4 @@
-from test_global_variables_A import funA, funB
+from demo_global_variables_A import funA, funB
 
 if __name__ == '__main__':
     # The called method will only find variables in its python file(modular
