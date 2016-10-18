@@ -1,0 +1,8 @@
+[remote_host1]
+systest-auto-idx5
+
+[remote_host1:vars]
+ansible_connection=ssh
+ansible_ssh_user=root
+ansible_ssh_pass=sp1unk
+check_dir=/tmp
