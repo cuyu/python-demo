@@ -5,13 +5,27 @@
 @contact: cuyu@splunk.com
 @since: 7/31/17
 """
-from flask import Flask, request, Response
+from functools import wraps
+
+from flask import Flask, request, Response, redirect
 import time
 
 app = Flask(__name__)
 
 
+def check_cookie(func):
+    @wraps(func)
+    def wrapper():
+        if not request.cookies:
+            return redirect('/login')
+        else:
+            func()
+
+    return wrapper
+
+
 @app.route('/')
+@check_cookie
 def hello_world():
     return 'hello world'
 
@@ -24,11 +38,13 @@ def login():
 
 
 @app.route('/show')
+@check_cookie
 def show():
     return request.cookies.__str__()
 
 
 @app.route('/del')
+@check_cookie
 def del_cookie():
     res = Response('delete cookies')
     res.set_cookie('name', '', expires=0)
