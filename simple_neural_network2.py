@@ -105,13 +105,40 @@ class SigmoidGate(Gate):
         self.u0.gradient = self.u0.value * (1 - self.u0.value) * self.utop.gradient
 
 
-class LinearNetwork(object):
+class ReLUGate(Gate):
     def __init__(self):
+        super(ReLUGate, self).__init__()
+        self.u0 = None
+
+    def forward(self, u0):
+        self.u0 = u0
+        self.utop = Unit(max(0, self.u0.value))
+        return self.utop
+
+    def backward(self):
         """
-        A LinearNetwork: it takes 5 Units (x,y,a,b,c) and outputs a single Unit:
+        Here, we define the derivative at x=0 to 0
+        Refer to https://www.quora.com/How-do-we-compute-the-gradient-of-a-ReLU-for-backpropagation
+        """
+        self._set_utop_gradient()
+        if self.u0.value > 0:
+            self.u0.gradient = 1 * self.utop.gradient
+        else:
+            self.u0.gradient = 0 * self.utop.gradient
+
+
+class LinearNetwork(Gate):
+    """
+    A LinearNetwork: it takes 5 Units (x,y,a,b,c) and outputs a single Unit:
         f(x, y) = a * x + b * y + c
-        So we need two MultiplyGate and two AddGate here
-        """
+    So we need two MultiplyGate and two AddGate here
+
+    From outside of the network, we can assume the whole network as a gate, which has 5 inputs and 1 output
+    So we inherit the <Gate> class here
+    """
+
+    def __init__(self):
+        super(LinearNetwork, self).__init__()
         self.a = Unit(1.0)
         self.b = Unit(1.0)
         self.c = Unit(1.0)
@@ -119,7 +146,6 @@ class LinearNetwork(object):
         self.multi_gate1 = MultiplyGate()
         self.add_gate0 = AddGate()
         self.add_gate1 = AddGate()
-        self.utop = None
 
     def forward(self, x, y):
         self.multi_gate0.forward(self.a, x)
@@ -129,6 +155,7 @@ class LinearNetwork(object):
         return self.utop
 
     def backward(self):
+        self._set_utop_gradient()
         self.add_gate1.backward()
         self.add_gate0.backward()
         self.multi_gate1.backward()
@@ -154,13 +181,70 @@ class LinearClassifier(object):
                     pull = -1
                 else:
                     pull = 0
+                # Set the gradient of final unit and then backward to get the direction (gradient) of corresponding parameters
+                # We can also set the pull (i.e. gradient) more/less than 1 to make the adjust more efficient
+                self.network.gradient = pull
                 self.network.backward()
-                self.network.a.value += pull * learning_rate * self.network.a.gradient
-                self.network.b.value += pull * learning_rate * self.network.b.gradient
-                self.network.c.value += pull * learning_rate * self.network.c.gradient
+                self.network.a.value += learning_rate * self.network.a.gradient
+                self.network.b.value += learning_rate * self.network.b.gradient
+                self.network.c.value += learning_rate * self.network.c.gradient
 
     def predict(self, x, y):
         return self.network.forward(Unit(x), Unit(y)).value
+
+
+class SingleNeuralNetwork(Gate):
+    """
+    SingleNeuralNetwork, a.k.a. a Neuro of NeuralNetwork
+    The formula is:
+        f(x, y) = max(0, a * x + b * y + c)
+    We can just think as it put the output of a <LinearNetwork> into a <ReLU> Gate
+    """
+
+    def __init__(self):
+        super(SingleNeuralNetwork, self).__init__()
+        self.linear_network = LinearNetwork()
+        self.relu_gate = ReLUGate()
+        self.a = self.linear_network.a
+        self.b = self.linear_network.b
+        self.c = self.linear_network.c
+
+    def forward(self, x, y):
+        self.linear_network.forward(x, y)
+        self.utop = self.relu_gate.forward(self.linear_network)
+        return self.utop
+
+    def backward(self):
+        self._set_utop_gradient()
+        self.relu_gate.backward()
+        self.linear_network.backward()
+
+
+class NeuralNetwork(Gate):
+    """
+    A neural network consist of two <SingleNeuralNetwork>
+    The formula is:
+        f(x, y) = a1 * n1 + a2 * n2 + d
+    where n1, n2 is the output of <SingleNeuralNetwork>, just as simple as apply the LinearNetwork to the <SingleNeuralNetwork>
+    """
+
+    def __init__(self):
+        super(NeuralNetwork, self).__init__()
+        self.neuro0 = SingleNeuralNetwork()
+        self.neuro1 = SingleNeuralNetwork()
+        self.linear_network = LinearNetwork()
+
+    def forward(self, x, y):
+        self.neuro0.forward(x, y)
+        self.neuro1.forward(x, y)
+        self.utop = self.linear_network.forward(self.neuro0, self.neuro1)
+        return self.utop
+
+    def backward(self):
+        self._set_utop_gradient()
+        self.linear_network.backward()
+        self.neuro0.backward()
+        self.neuro1.backward()
 
 
 if __name__ == '__main__':
