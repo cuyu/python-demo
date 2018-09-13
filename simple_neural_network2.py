@@ -3,6 +3,7 @@
 """
 Another way to implement a simple neural network, using modular.
 """
+from abc import abstractmethod
 import math
 
 
@@ -13,6 +14,10 @@ class Unit(object):
 
 
 class Gate(object):
+    """
+    The base class of all gates
+    """
+
     def __init__(self):
         self.utop = None
 
@@ -40,6 +45,27 @@ class Gate(object):
     def gradient(self, new_value):
         self.utop.gradient = new_value
 
+    @abstractmethod
+    def forward(self, *units):
+        """
+        :param units: <Unit> instances
+        :return utop
+        Run the forward process, calculate the utop (a <Unit> instance) as output.
+        An example of a gate with two inputs is like below:
+
+        u0 --- [      ]
+               [ Gate ] --- utop
+        u1 --- [      ]
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def backward(self):
+        """
+        Run the backward process to update the gradient of each unit in the gate
+        """
+        raise NotImplementedError
+
 
 class AddGate(Gate):
     def __init__(self):
@@ -48,14 +74,6 @@ class AddGate(Gate):
         self.u1 = None
 
     def forward(self, u0, u1):
-        """
-        :param u0: <Unit> instance
-        :param u1: <Unit> instance
-
-        u0 --- [      ]
-               [ Gate ] --- utop
-        u1 --- [      ]
-        """
         self.u0 = u0
         self.u1 = u1
         self.utop = Unit(self.u0.value + self.u1.value)
@@ -127,7 +145,32 @@ class ReLUGate(Gate):
             self.u0.gradient = 0 * self.utop.gradient
 
 
-class LinearNetwork(Gate):
+class Network(Gate):
+    """
+    Base class of networks
+    """
+
+    def __init__(self):
+        super(Network, self).__init__()
+
+    @abstractmethod
+    def forward(self, *units):
+        raise NotImplementedError
+
+    @abstractmethod
+    def backward(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def pull_parameters(self, learning_rate):
+        """
+        Adjust all the parameters according to the gradients
+        Should be called after forward and backward process
+        """
+        raise NotImplementedError
+
+
+class LinearNetwork(Network):
     """
     A LinearNetwork: it takes 5 Units (x,y,a,b,c) and outputs a single Unit:
         f(x, y) = a * x + b * y + c
@@ -161,39 +204,16 @@ class LinearNetwork(Gate):
         self.multi_gate1.backward()
         self.multi_gate0.backward()
 
-
-class LinearClassifier(object):
-    def __init__(self):
-        self.network = LinearNetwork()
-
-    def train(self, data_set, learning_rate=0.01, steps=100):
+    def pull_parameters(self, learning_rate):
         """
-        :param data_set: a list of tuple, the first of the tuple is the feature vector, the second is the label
-        :param learning_rate: the learning rate
-        :param steps: how many rounds for training
+        Adjust all the parameters according to the gradients
         """
-        for _ in range(steps):
-            for feature, label in data_set:
-                utop = self.network.forward(*[Unit(k) for k in feature])
-                if label > 0 and utop.value < 1:
-                    pull = 1
-                elif label < 0 and utop.value > -1:
-                    pull = -1
-                else:
-                    pull = 0
-                # Set the gradient of final unit and then backward to get the direction (gradient) of corresponding parameters
-                # We can also set the pull (i.e. gradient) more/less than 1 to make the adjust more efficient
-                self.network.gradient = pull
-                self.network.backward()
-                self.network.a.value += learning_rate * self.network.a.gradient
-                self.network.b.value += learning_rate * self.network.b.gradient
-                self.network.c.value += learning_rate * self.network.c.gradient
-
-    def predict(self, x, y):
-        return self.network.forward(Unit(x), Unit(y)).value
+        self.a.value += learning_rate * self.a.gradient
+        self.b.value += learning_rate * self.b.gradient
+        self.c.value += learning_rate * self.c.gradient
 
 
-class SingleNeuralNetwork(Gate):
+class SingleNeuralNetwork(Network):
     """
     SingleNeuralNetwork, a.k.a. a Neuro of NeuralNetwork
     The formula is:
@@ -205,9 +225,6 @@ class SingleNeuralNetwork(Gate):
         super(SingleNeuralNetwork, self).__init__()
         self.linear_network = LinearNetwork()
         self.relu_gate = ReLUGate()
-        self.a = self.linear_network.a
-        self.b = self.linear_network.b
-        self.c = self.linear_network.c
 
     def forward(self, x, y):
         self.linear_network.forward(x, y)
@@ -219,8 +236,12 @@ class SingleNeuralNetwork(Gate):
         self.relu_gate.backward()
         self.linear_network.backward()
 
+    def pull_parameters(self, learning_rate):
+        # All the parameters are in the linear network
+        self.linear_network.pull_parameters(learning_rate)
 
-class NeuralNetwork(Gate):
+
+class NeuralNetwork(Network):
     """
     A neural network consist of two <SingleNeuralNetwork>
     The formula is:
@@ -246,6 +267,55 @@ class NeuralNetwork(Gate):
         self.neuro0.backward()
         self.neuro1.backward()
 
+    def pull_parameters(self, learning_rate):
+        self.neuro0.pull_parameters(learning_rate)
+        self.neuro1.pull_parameters(learning_rate)
+        self.linear_network.pull_parameters(learning_rate)
+
+
+class Classifier(object):
+    def __init__(self, network):
+        """
+        :param network: A <Network> instance
+        """
+        self.network = network
+
+    def train(self, data_set, learning_rate=0.01, steps=100):
+        """
+        :param data_set: a list of tuple, the first of the tuple is the feature vector, the second is the label
+        :param learning_rate: the learning rate
+        :param steps: how many rounds for training
+        """
+        for _ in range(steps):
+            for feature, label in data_set:
+                utop = self.network.forward(*[Unit(k) for k in feature])
+                if label > 0 and utop.value < 1:
+                    pull = 1
+                elif label < 0 and utop.value > -1:
+                    pull = -1
+                else:
+                    pull = 0
+                # Set the gradient of final unit and then backward to get the direction (gradient) of corresponding parameters
+                # We can also set the pull (i.e. gradient) more/less than 1 to make the adjust more efficient
+                self.network.gradient = pull
+                self.network.backward()
+                self.network.pull_parameters(learning_rate)
+
+    def predict(self, x, y):
+        return self.network.forward(Unit(x), Unit(y)).value
+
+
+class LinearClassifier(Classifier):
+    def __init__(self):
+        network = LinearNetwork()
+        super(LinearClassifier, self).__init__(network)
+
+
+class NeuralNetworkClassifier(Classifier):
+    def __init__(self):
+        network = NeuralNetwork()
+        super(NeuralNetworkClassifier, self).__init__(network)
+
 
 if __name__ == '__main__':
     data_set = [
@@ -256,7 +326,7 @@ if __name__ == '__main__':
         ([-1.0, 1.1], -1),
         ([2.1, -3.0], 1),
     ]
-    classifier = LinearClassifier()
+    classifier = NeuralNetworkClassifier()
     classifier.train(data_set)
     for feature, _ in data_set:
         print(classifier.predict(*feature))
