@@ -177,6 +177,15 @@ class Network(Gate):
         """
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def weights_without_bias(self):
+        """
+        :return: The weights related to input feature, i.e. exclude bias weights from all weights
+                 Used to calculate Regularization in loss function
+        """
+        raise NotImplementedError
+
 
 class LinearNetwork(Network):
     """
@@ -188,31 +197,39 @@ class LinearNetwork(Network):
     So we inherit the <Gate> class here
     """
 
-    def __init__(self):
+    def __init__(self, feature_length):
         super(LinearNetwork, self).__init__()
-        self._weights = [Unit(1.0), Unit(1.0), Unit(1.0)]
-        self.multi_gate0 = MultiplyGate()
-        self.multi_gate1 = MultiplyGate()
-        self.add_gate0 = AddGate()
-        self.add_gate1 = AddGate()
+        assert feature_length >= 2  # todo: support feature_length = 1
+        self._weights = [Unit(1.0) for _ in range(feature_length + 1)]
+        self.multi_gates = [MultiplyGate() for _ in range(feature_length)]
+        self.add_gates = [AddGate() for _ in range(feature_length)]
 
-    def forward(self, x, y):
-        self.multi_gate0.forward(self._weights[0], x)
-        self.multi_gate1.forward(self._weights[1], y)
-        self.add_gate0.forward(self.multi_gate0, self.multi_gate1)
-        self.utop = self.add_gate1.forward(self.add_gate0, self._weights[2])
+    def forward(self, *feature):
+        """
+        :param feature: <Unit> instances
+        """
+        for i in range(len(feature)):
+            self.multi_gates[i].forward(self._weights[i], feature[i])
+        self.add_gates[0].forward(self.multi_gates[0], self._weights[-1])
+        for i in range(1, len(feature)):
+            self.utop = self.add_gates[i].forward(self.add_gates[i - 1], self.multi_gates[i])
         return self.utop
 
     def backward(self):
         self._set_utop_gradient()
-        self.add_gate1.backward()
-        self.add_gate0.backward()
-        self.multi_gate1.backward()
-        self.multi_gate0.backward()
+        # The sequence matters here!
+        for gate in reversed(self.add_gates):
+            gate.backward()
+        for gate in reversed(self.multi_gates):
+            gate.backward()
 
     @property
     def weights(self):
         return self._weights
+
+    @property
+    def weights_without_bias(self):
+        return self._weights[:-1]
 
 
 class SingleNeuralNetwork(Network):
@@ -225,7 +242,7 @@ class SingleNeuralNetwork(Network):
 
     def __init__(self):
         super(SingleNeuralNetwork, self).__init__()
-        self.linear_network = LinearNetwork()
+        self.linear_network = LinearNetwork(2)
         self.relu_gate = ReLUGate()
 
     def forward(self, x, y):
@@ -242,6 +259,10 @@ class SingleNeuralNetwork(Network):
     def weights(self):
         return self.linear_network.weights
 
+    @property
+    def weights_without_bias(self):
+        return self.linear_network.weights_without_bias
+
 
 class NeuralNetwork(Network):
     """
@@ -255,7 +276,7 @@ class NeuralNetwork(Network):
         super(NeuralNetwork, self).__init__()
         self.neuro0 = SingleNeuralNetwork()
         self.neuro1 = SingleNeuralNetwork()
-        self.linear_network = LinearNetwork()
+        self.linear_network = LinearNetwork(2)
 
     def forward(self, x, y):
         self.neuro0.forward(x, y)
@@ -272,6 +293,10 @@ class NeuralNetwork(Network):
     @property
     def weights(self):
         return self.neuro0.weights + self.neuro1.weights + self.linear_network.weights
+
+    @property
+    def weights_without_bias(self):
+        return self.neuro0.weights_without_bias + self.neuro1.weights_without_bias + self.linear_network.weights_without_bias
 
 
 class BasicClassifier(object):
@@ -312,7 +337,7 @@ class BasicClassifier(object):
 
 class LinearClassifier(BasicClassifier):
     def __init__(self):
-        network = LinearNetwork()
+        network = LinearNetwork(2)
         super(LinearClassifier, self).__init__(network)
 
 
@@ -325,21 +350,26 @@ class NeuralNetworkClassifier(BasicClassifier):
 class AdvancedClassifier(object):
     """
     The network to calculate the cost of the classification
+
     For a simple linear classifier, the formula:
         L=∑max(0,−y_i*(w_0*x_i0+w_1*x_i1+w_2)+1)+α(w_0*w_0+w_1*w_1)
-    Where, the x_i0,x_i1 are the input feature, y_i is the label, w_0, w_1, w_2 are the weights (i.e. a, b, c in above linear network)
+    Where, the x_i0,x_i1 are the input feature, y_i is the label, w_0, w_1 are the weights related to features
+    (Not include the bias, i.e. a, b in above linear network, but not include c)
+
     For general classifier, the formula:
-        L=∑max(0,−y_i*f(X_i)+1)+α(w_0*w_0+w_1*w_1+...)
+        L=∑max(0,−y_i*f(X_i)+1)+α*∑w_i*w_i
     Where, the X_i is 1*N feature vector, f(X_i) is the output (utop.value) of given Network
     """
 
     def __init__(self, network):
         self.network = network
+        self.alpha = 0.1  # Regularization strength
 
     def train(self, data_set, learning_rate=0.01, steps=100):
         feature_number = len(data_set)
         multi_gates = [MultiplyGate() for _ in range(feature_number)]
         add_gates = [AddGate() for _ in range(feature_number * 3)]
+        weight_number = len(self.network.weights_without_bias)
 
     def forward(self):
         self.mutli_gates
@@ -360,7 +390,8 @@ if __name__ == '__main__':
         ([-1.0, 1.1], -1),
         ([2.1, -3.0], 1),
     ]
-    classifier = NeuralNetworkClassifier()
+    classifier = LinearClassifier()
     classifier.train(data_set)
     for feature, _ in data_set:
         print(classifier.predict(*feature))
+    print([u.value for u in classifier.network.weights])
