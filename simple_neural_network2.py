@@ -161,11 +161,19 @@ class Network(Gate):
     def backward(self):
         raise NotImplementedError
 
-    @abstractmethod
-    def pull_parameters(self, learning_rate):
+    def pull_weights(self, learning_rate):
         """
-        Adjust all the parameters according to the gradients
+        Adjust all the weights according to the gradients
         Should be called after forward and backward process
+        """
+        for w in self.weights:
+            w.value += learning_rate * w.gradient
+
+    @property
+    @abstractmethod
+    def weights(self):
+        """
+        :return: All the weights used inside the network, each weight is a <Unit> instance
         """
         raise NotImplementedError
 
@@ -182,19 +190,17 @@ class LinearNetwork(Network):
 
     def __init__(self):
         super(LinearNetwork, self).__init__()
-        self.a = Unit(1.0)
-        self.b = Unit(1.0)
-        self.c = Unit(1.0)
+        self._weights = [Unit(1.0), Unit(1.0), Unit(1.0)]
         self.multi_gate0 = MultiplyGate()
         self.multi_gate1 = MultiplyGate()
         self.add_gate0 = AddGate()
         self.add_gate1 = AddGate()
 
     def forward(self, x, y):
-        self.multi_gate0.forward(self.a, x)
-        self.multi_gate1.forward(self.b, y)
+        self.multi_gate0.forward(self._weights[0], x)
+        self.multi_gate1.forward(self._weights[1], y)
         self.add_gate0.forward(self.multi_gate0, self.multi_gate1)
-        self.utop = self.add_gate1.forward(self.add_gate0, self.c)
+        self.utop = self.add_gate1.forward(self.add_gate0, self._weights[2])
         return self.utop
 
     def backward(self):
@@ -204,13 +210,9 @@ class LinearNetwork(Network):
         self.multi_gate1.backward()
         self.multi_gate0.backward()
 
-    def pull_parameters(self, learning_rate):
-        """
-        Adjust all the parameters according to the gradients
-        """
-        self.a.value += learning_rate * self.a.gradient
-        self.b.value += learning_rate * self.b.gradient
-        self.c.value += learning_rate * self.c.gradient
+    @property
+    def weights(self):
+        return self._weights
 
 
 class SingleNeuralNetwork(Network):
@@ -236,9 +238,9 @@ class SingleNeuralNetwork(Network):
         self.relu_gate.backward()
         self.linear_network.backward()
 
-    def pull_parameters(self, learning_rate):
-        # All the parameters are in the linear network
-        self.linear_network.pull_parameters(learning_rate)
+    @property
+    def weights(self):
+        return self.linear_network.weights
 
 
 class NeuralNetwork(Network):
@@ -267,13 +269,16 @@ class NeuralNetwork(Network):
         self.neuro0.backward()
         self.neuro1.backward()
 
-    def pull_parameters(self, learning_rate):
-        self.neuro0.pull_parameters(learning_rate)
-        self.neuro1.pull_parameters(learning_rate)
-        self.linear_network.pull_parameters(learning_rate)
+    @property
+    def weights(self):
+        return self.neuro0.weights + self.neuro1.weights + self.linear_network.weights
 
 
-class Classifier(object):
+class BasicClassifier(object):
+    """
+    The base class of classifiers
+    """
+
     def __init__(self, network):
         """
         :param network: A <Network> instance
@@ -299,22 +304,51 @@ class Classifier(object):
                 # We can also set the pull (i.e. gradient) more/less than 1 to make the adjust more efficient
                 self.network.gradient = pull
                 self.network.backward()
-                self.network.pull_parameters(learning_rate)
+                self.network.pull_weights(learning_rate)
 
     def predict(self, x, y):
         return self.network.forward(Unit(x), Unit(y)).value
 
 
-class LinearClassifier(Classifier):
+class LinearClassifier(BasicClassifier):
     def __init__(self):
         network = LinearNetwork()
         super(LinearClassifier, self).__init__(network)
 
 
-class NeuralNetworkClassifier(Classifier):
+class NeuralNetworkClassifier(BasicClassifier):
     def __init__(self):
         network = NeuralNetwork()
         super(NeuralNetworkClassifier, self).__init__(network)
+
+
+class AdvancedClassifier(object):
+    """
+    The network to calculate the cost of the classification
+    For a simple linear classifier, the formula:
+        L=∑max(0,−y_i*(w_0*x_i0+w_1*x_i1+w_2)+1)+α(w_0*w_0+w_1*w_1)
+    Where, the x_i0,x_i1 are the input feature, y_i is the label, w_0, w_1, w_2 are the weights (i.e. a, b, c in above linear network)
+    For general classifier, the formula:
+        L=∑max(0,−y_i*f(X_i)+1)+α(w_0*w_0+w_1*w_1+...)
+    Where, the X_i is 1*N feature vector, f(X_i) is the output (utop.value) of given Network
+    """
+
+    def __init__(self, network):
+        self.network = network
+
+    def train(self, data_set, learning_rate=0.01, steps=100):
+        feature_number = len(data_set)
+        multi_gates = [MultiplyGate() for _ in range(feature_number)]
+        add_gates = [AddGate() for _ in range(feature_number * 3)]
+
+    def forward(self):
+        self.mutli_gates
+
+    def backward(self):
+        self._set_utop_gradient()
+
+    def pull_parameters(self, learning_rate):
+        pass
 
 
 if __name__ == '__main__':
